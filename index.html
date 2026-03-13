@@ -14,7 +14,7 @@
         .animate-fade-in { animation: fadeIn 0.5s ease-out; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(15px); } to { opacity: 1; transform: translateY(0); } }
         
-        .active-tab { background-color: #4f46e5; color: white !important; }
+        .active-tab { background-color: #4f46e5 !important; color: white !important; }
         
         ::-webkit-scrollbar { width: 8px; }
         ::-webkit-scrollbar-track { background: #f1f1f1; }
@@ -271,15 +271,39 @@
         import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, collection, addDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // Firebase Configuration
-        const firebaseConfig = JSON.parse(__firebase_config);
-        const app = initializeApp(firebaseConfig);
-        const auth = getAuth(app);
-        const db = getFirestore(app);
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'renascer-mentoria-v4';
+        // CONFIGURAÇÃO DE SEGURANÇA PARA VS CODE
+        // Se as variáveis não existirem, o código não quebra
+        const firebaseConfigRaw = typeof __firebase_config !== 'undefined' ? __firebase_config : '{"apiKey":"","authDomain":"","projectId":"","storageBucket":"","messagingSenderId":"","appId":""}';
+        const firebaseConfig = JSON.parse(firebaseConfigRaw);
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'renascer-mentoria-local';
+
+        // Inicialização apenas se houver configuração válida
+        let db = null;
+        let auth = null;
+        let user = null;
+
+        if(firebaseConfig.projectId) {
+            const app = initializeApp(firebaseConfig);
+            auth = getAuth(app);
+            db = getFirestore(app);
+            
+            const initAuth = async () => {
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+            };
+
+            onAuthStateChanged(auth, (u) => {
+                user = u;
+                if (u) setupRealtimeListener();
+            });
+
+            initAuth();
+        }
 
         // State Management
-        let user = null;
         let responses = [];
         let currentQuizType = null;
         let currentStep = 0;
@@ -345,27 +369,9 @@
             ]
         };
 
-        // Initialize Auth
-        const initAuth = async () => {
-            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                await signInWithCustomToken(auth, __initial_auth_token);
-            } else {
-                await signInAnonymously(auth);
-            }
-        };
-
-        onAuthStateChanged(auth, (u) => {
-            user = u;
-            if (u) {
-                setupRealtimeListener();
-            }
-        });
-
-        initAuth();
-
         // Firestore Logic
         function setupRealtimeListener() {
-            if (!user) return;
+            if (!db || !user) return;
             const q = collection(db, 'artifacts', appId, 'public', 'data', 'responses');
             onSnapshot(q, (snapshot) => {
                 responses = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -379,7 +385,7 @@
         }
 
         async function saveToCloud(entry) {
-            if (!user) return;
+            if (!db || !user) return;
             try {
                 await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'responses'), entry);
             } catch (e) {
@@ -387,7 +393,7 @@
             }
         }
 
-        // Global functions attachment (NECESSARY FIX FOR TAB CLICKABILITY)
+        // --- ATTACHING FUNCTIONS TO WINDOW (Crucial for HTML onClicks) ---
         window.showView = (viewId) => {
             document.querySelectorAll('.view').forEach(v => v.classList.add('hidden'));
             document.getElementById(`view-${viewId}`)?.classList.remove('hidden');
@@ -501,7 +507,7 @@
         function renderAdminTable() {
             const tbody = document.getElementById('admin-table-body');
             if(responses.length === 0) { 
-                tbody.innerHTML = `<tr><td colspan="5" class="py-20 text-center font-bold text-slate-300">Ainda não existem respostas no sistema.</td></tr>`; 
+                tbody.innerHTML = `<tr><td colspan="5" class="py-20 text-center font-bold text-slate-300">Aguardando dados da nuvem...</td></tr>`; 
                 return; 
             }
             const sorted = [...responses].sort((a, b) => new Date(b.date) - new Date(a.date));
@@ -604,6 +610,9 @@
         };
 
         window.closeModal = () => { document.getElementById('modal-details').classList.add('hidden'); };
+        
+        window.print = () => { window.print(); };
+
     </script>
 </body>
-</html>
+</html> 
